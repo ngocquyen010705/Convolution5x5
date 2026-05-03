@@ -1,0 +1,33 @@
+{
+  "kernel": "gaussian5",
+  "width": 640,
+  "height": 480,
+  "frames": 1,
+  "expected_valid_per_frame": 302736,
+  "pixels_per_frame": 307200,
+  "sim_wall_ms_mean": 90069.14689999985,
+  "sim_wall_ms_p95": 90069.14689999985,
+  "sim_wall_ms_min": 90069.14689999985,
+  "sim_wall_ms_max": 90069.14689999985,
+  "sim_fps_mean": 0.011102581010456997,
+  "sim_mpixels_per_sec_mean": 0.0034107128864123894,
+  "all_tb_pass": true,
+  "tb_failed_frames": [],
+  "per_frame": [
+    {
+      "frame": "frame_000000",
+      "valid_samples": 302736,
+      "expected_valid": 302736,
+      "sim_time_ps": -1,
+      "sim_wall_ms": 90069.14689999985,
+      "out_hex_sha1": "43f45059b91f62ec654b43cbe232c76f02613058",
+      "tb_status": "PASS",
+      "tb_valid_count": 302736,
+      "tb_expected_count": 302736,
+      "tb_mismatch_count": 0,
+      "tb_unknown_count": 0,
+      "tb_exp_rd_ptr": 302736,
+      "tb_exp_wr_ptr": 302736
+    }
+  ]
+}

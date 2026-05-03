@@ -1,0 +1,2 @@
+"Width","Height","Kernel","SimWallMs","SimFps","SimCycles","HwFpsAt20MHz","HwFpsAt40MHz","TbAllPass"
+"160","120","identity5","11560","0.086505","19334","1034.447","2068.894","True"

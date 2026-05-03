@@ -1,0 +1,25 @@
+SIM_OUT=../sim/sim.vvp
+VCD_OUT=../sim/dump.vcd
+
+RTL=../src/top_convolution.sv \
+    ../src/line_buffer_4.sv \
+    ../src/kernel_loader.sv \
+    ../src/mac_array_25x3.sv \
+    ../src/pipeline_stage.sv
+
+TB=tb_convolution.sv
+
+all: clean run
+
+compile:
+	iverilog -g2012 -Wall $(RTL) $(TB) -o $(SIM_OUT)
+
+run: compile
+	vvp $(SIM_OUT)
+
+wave:
+	gtkwave $(VCD_OUT)
+
+clean:
+	if [ -f $(SIM_OUT) ]; then rm -f $(SIM_OUT); fi
+	if [ -f $(VCD_OUT) ]; then rm -f $(VCD_OUT); fi

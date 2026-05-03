@@ -1,0 +1,43 @@
+# Simulation
+sim/
+*.vcd
+*.vvp
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Vivado
+vivado_project/.Xil/
+vivado_project/*.jou
+vivado_project/*.log
+vivado_project/*.str
+vivado_project/*.cache/
+vivado_project/*.runs/
+vivado_project/*.ip_user_files/
+vivado_project/builds/
+vivado_project/reports/vivado_*.log
+
+# Vivado root/session artifacts
+.Xil/
+vivado*.jou
+vivado*.log
+xvlog.log
+xvlog.pb
+
+# XSIM/tb artifacts
+tb/xsim.dir/
+tb/*.wdb
+tb/xsim*.jou
+tb/xsim*.log
+tb/xsim_*.backup.jou
+tb/xsim_*.backup.log
+tb/xelab.log
+tb/xelab.pb
+tb/xvlog.log
+tb/xvlog.pb
+
+# OS/editor
+.DS_Store
+Thumbs.db

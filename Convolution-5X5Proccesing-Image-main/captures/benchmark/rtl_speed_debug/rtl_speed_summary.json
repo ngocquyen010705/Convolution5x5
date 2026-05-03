@@ -1,0 +1,11 @@
+{
+    "Width":  160,
+    "Height":  120,
+    "Kernel":  "identity5",
+    "SimWallMs":  11560,
+    "SimFps":  0.086505,
+    "SimCycles":  19334,
+    "HwFpsAt20MHz":  1034.447,
+    "HwFpsAt40MHz":  2068.894,
+    "TbAllPass":  true
+}

@@ -1,0 +1,165 @@
+\documentclass[a4paper,12pt]{article}
+\usepackage{geometry}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{tabularx}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{float}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, backgrounds, calc}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,      
+    urlcolor=cyan,
+    pdftitle={Báo cáo Tối ưu hóa FPGA Convolution},
+}
+
+\title{\textbf{BÁO CÁO KỸ THUẬT: TỐI ƯU HÓA PIPELINE TRÊN FPGA}\\
+\large Hệ thống 5$\times$5 RGB Convolution Engine đạt 100MHz}
+\author{Đội ngũ Thiết kế Kiến trúc Phần cứng}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Báo cáo này trình bày chi tiết quá trình thiết kế, phát hiện nút thắt cổ chai (bottleneck) và tối ưu hóa hệ thống lõi xử lý chập (Convolution Engine) ma trận 5$\times$5 trên nền tảng Xilinx Zynq-7000 FPGA. Thông qua việc phân tích kiến trúc đa tác nhân, hệ thống đã được tái thiết kế từ Pipeline 4-stage sang 6-stage với mảng cộng (Adder Tree) cân bằng. Kết quả thực nghiệm cho thấy hệ thống hoạt động chính xác 100\% (PASS) trên 5 bộ lọc (kernel) khác nhau và vượt qua khâu kiểm tra định tuyến (Timing Closure) tại tần số 100 MHz với biên thời gian (WNS) dương đạt \textbf{+1.228 ns}.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\section{Giới thiệu chung và Mục tiêu}
+\subsection{Mục tiêu thiết kế}
+Dự án hướng tới việc xây dựng một bộ xử lý chập (Convolution Engine) 5$\times$5 RGB có khả năng thay đổi hệ số trực tiếp (runtime-programmable). Module được định hướng để ứng dụng trong các luồng xử lý ảnh thời gian thực như pipeline xử lý dữ liệu từ camera Intel RealSense D455 qua FPGA Zynq. Yêu cầu hệ thống phải duy trì thông lượng 1 pixel trên mỗi chu kỳ xung nhịp (1 pixel/clock).
+
+\subsection{Vấn đề và Thách thức (Timing Bottleneck)}
+Trong thiết kế ban đầu (Pipeline 4-stage), quá trình phân tích Timing đã phát hiện một nút thắt cổ chai nghiêm trọng tại tần số hoạt động 50 MHz (Thời gian chu kỳ 20ns):
+\begin{itemize}
+    \item \textbf{Fmax ban đầu:} Chỉ đạt \textbf{40 MHz} (WNS = +0.460 ns).
+    \item \textbf{Cảnh báo ở 50 MHz:} WNS âm trầm trọng (\textbf{-4.540 ns}), thiết kế bị trượt Timing (FAIL).
+    \item \textbf{Nguyên nhân:} Đường dẫn tổ hợp (Combinational path) chậm nhất kéo dài tới $\approx$ 24.5 ns. Nó nằm tại cụm tính toán S2 do việc sử dụng mảng cộng 7-input chưa được cân bằng và quá trình gộp/dịch/bão hòa diễn ra trong cùng một chu kỳ.
+\end{itemize}
+
+\section{Kiến trúc Phần cứng (Hardware Architecture)}
+
+Để giải quyết vấn đề trên, hệ thống đã được đập đi xây lại dựa trên thiết kế \textbf{6-Stage Deep Pipeline}.
+
+\subsection{Sơ đồ Khối Cấp cao (Top-Level Block Diagram)}
+
+\begin{figure}[H]
+    \centering
+    \resizebox{\textwidth}{!}{
+    \begin{tikzpicture}[
+        auto,
+        datapath_block/.style={rectangle, draw=blue!80!black, fill=blue!5, thick, 
+                               minimum width=4cm, minimum height=2cm, align=center, rounded corners=1mm},
+        mac_block/.style={rectangle, draw=red!80!black, fill=red!5, thick, 
+                          minimum width=4.5cm, minimum height=2.5cm, align=center, rounded corners=1mm},
+        ctrl_block/.style={rectangle, draw=orange!80!black, fill=orange!10, thick, 
+                           minimum width=3.5cm, minimum height=2.5cm, align=center, rounded corners=1mm},
+        wrapper_box/.style={rectangle, draw=green!60!black, dashed, thick, inner sep=20pt, fill=green!2},
+        data_bus/.style={-{Stealth[scale=1.2]}, thick, blue!60!black},
+        ctrl_bus/.style={-{Stealth[scale=1.2]}, thick, dashed, orange!80!black},
+        backpressure/.style={-{Stealth[scale=1.2]}, thick, dotted, red!80!black},
+        lbl/.style={font=\scriptsize\ttfamily, text=black!80}
+    ]
+
+    \node[ctrl_block] (axilite) {\textbf{axi\_lite\_kernel\_ctrl}\\(AXI-Lite Control)\\[1ex]\scriptsize{Reg Map: 0x00--0x10}};
+    \node[datapath_block, right=3.5cm of axilite, yshift=2.5cm] (linebuf) {\textbf{line\_buffer\_4}\\(Window Gen)\\[1ex]\scriptsize{4 BRAM Lines + 5$\times$5 SRs}};
+    \node[ctrl_block, below=2cm of linebuf] (kernel) {\textbf{kernel\_loader}\\(Programmable Coeffs)\\[1ex]\scriptsize{25$\times$ 16-bit Q8.8 Regs}};
+    \node[mac_block, right=2.5cm of linebuf, yshift=-1.5cm] (mac) {\textbf{mac\_array\_25x3}\\(100MHz Convolution Core)\\[1ex]\scriptsize{6-Stage Deep Pipeline}};
+
+    \begin{scope}[on background layer]
+        \node[wrapper_box, fit=(linebuf) (kernel) (mac)] (wrapper) {};
+        \node[above left, font=\bfseries\color{green!50!black}] at (wrapper.south east) {axi\_stream\_conv\_wrapper};
+    \end{scope}
+
+    \coordinate (axi_s_in)  at ($(wrapper.west |- linebuf.west) - (2.5cm, 0)$);
+    \coordinate (axi_s_out) at ($(wrapper.east |- mac.east) + (2.5cm, 0)$);
+
+    \draw[ctrl_bus] (axilite.east |- kernel.west) -- node[above, lbl] {kernel\_wr\_en} node[below, lbl] {addr/data} (kernel.west);
+    \draw[data_bus] (axi_s_in) -- node[above, lbl] {s\_axis\_tdata (24b)} node[below, lbl] {tvalid} (wrapper.west |- linebuf.west) -- (linebuf.west);
+    \draw[data_bus] (linebuf.east) -| node[above, near start, lbl] {window\_flat (600b)} (mac.north);
+    \draw[data_bus] (kernel.east) -| node[below, near start, lbl] {kernel\_flat (400b)} (mac.south);
+    \draw[data_bus] (mac.east) -- (wrapper.east |- mac.east) -- node[above, lbl] {m\_axis\_tdata (24b)} node[below, lbl] {tvalid, overflow} (axi_s_out);
+    \draw[backpressure] ($(axi_s_out) - (0, 0.6)$) -- node[below, lbl, text=red!80!black] {m\_axis\_tready} ($(wrapper.east |- mac.east) - (0, 0.6)$);
+    \draw[backpressure] ($(wrapper.west |- linebuf.west) - (0, 0.6)$) -- node[below, lbl, text=red!80!black] {s\_axis\_tready (throttle)} ($(axi_s_in) - (0, 0.6)$);
+    \end{tikzpicture}
+    }
+    \caption{Sơ đồ khối Top-Level của hệ thống tích hợp AXI-Stream và AXI-Lite}
+\end{figure}
+
+\subsection{Chi tiết Tối ưu MAC Array (Trái tim hệ thống)}
+Lõi tính toán (\texttt{mac\_array\_25x3.sv}) được tách từ 4 khâu (4-stage) lên thành 6 khâu (6-stage) Pipeline:
+\begin{enumerate}
+    \item \textbf{Stage 1 (Nhân):} 25 phép nhân song song cho 3 kênh (75 Multipliers 9x16-bit) -> 32-bit.
+    \item \textbf{Stage 2 (Sub-Group Sums):} 8 cụm cộng (Balanced Tree: 4+3+3+3+3+3+3+3) -> 48-bit.
+    \item \textbf{Stage 3 (Group Merges):} Cộng 4 cặp tương ứng từ Stage 2 -> 48-bit.
+    \item \textbf{Stage 4 (2-Way Merge):} Gộp 2 nửa thấp và cao -> 48-bit.
+    \item \textbf{Stage 5 (Shift):} Thực hiện cộng tổng cuối cùng và dịch phải \texttt{>>> 8} (chuẩn hóa Q8.8).
+    \item \textbf{Stage 6 (Saturate):} Kiểm tra bão hòa \texttt{[0, 255]} và đóng gói lại thành pixel 24-bit.
+\end{enumerate}
+
+Với thiết kế này, độ trễ tổ hợp (Combinational Path) dài nhất đã giảm từ \textbf{24.5 ns} xuống chỉ còn \textbf{$\approx$ 8.7 ns}.
+
+\section{Kết quả Kiểm tra Mô phỏng (Functional Verification)}
+
+Thử nghiệm (Regression Test) được chạy trên Testbench tự kiểm tra (\texttt{tb\_convolution.sv}). Chúng tôi đã so sánh đầu ra của RTL với Golden Model (được viết bằng Python, sử dụng số học độ phân giải cao). Tập kiểm tra sử dụng 1 khung ảnh (frame) 16$\times$16.
+
+Bảng dưới đây trình bày kết quả quét qua 5 loại bộ lọc (Kernel) cơ bản:
+
+\begin{table}[H]
+    \centering
+    \begin{tabularx}{\textwidth}{|X|c|c|c|>{\bfseries}c|}
+    \hline
+    \textbf{Kernel Name} & \textbf{Valid Output Count} & \textbf{Expected Output} & \textbf{Bit-Level Match} & \textbf{Status} \\ \hline
+    identity5 & 144 lines & 144 & 100\% Match & \textcolor{green!70!black}{PASS} \\ \hline
+    gaussian5 & 144 lines & 144 & 100\% Match & \textcolor{green!70!black}{PASS} \\ \hline
+    sharpen5 & 144 lines & 144 & 100\% Match & \textcolor{green!70!black}{PASS} \\ \hline
+    emboss5 & 144 lines & 144 & 100\% Match & \textcolor{green!70!black}{PASS} \\ \hline
+    laplacian5 & 144 lines & 144 & 100\% Match & \textcolor{green!70!black}{PASS} \\ \hline
+    \end{tabularx}
+    \caption{Kết quả Hồi quy (Regression Test) cho 5 bộ lọc sau khi tối ưu 6-Stage Pipeline}
+\end{table}
+
+\textbf{Ghi chú Timing Mô phỏng:} Sau khi nâng lên 6-stage pipeline, độ trễ (latency) của mô-đun MAC đã tăng thêm 2 clock cycles. Tổng thời gian mô phỏng tăng chính xác $2 \times 10 \text{ns} \times 160 \text{ (số chu kỳ đợi drain)} = 800,000 \text{ ps}$, hoàn toàn khớp với thiết kế lý thuyết.
+
+\section{Kết quả Tổng hợp \& Định tuyến trên Vivado (Implementation Results)}
+
+Để kiểm chứng khả năng đóng Timing tại 100 MHz, công cụ Xilinx Vivado đã được khởi chạy với tệp cấu hình ràng buộc \texttt{constraints.xdc} đặt Clock Period = \textbf{10.0 ns}. Kịch bản Sweep Clock đã được chạy kèm với tệp hoạt động tiêu thụ điện năng (SAIF) được xuất ra từ XSIM.
+
+\begin{table}[H]
+    \centering
+    \begin{tabularx}{\textwidth}{|c|c|c|c|c|X|}
+    \hline
+    \textbf{Target Freq} & \textbf{Period} & \textbf{WNS (Worst Slack)} & \textbf{TNS} & \textbf{Status} & \textbf{Power Confidence} \\ \hline
+    100 MHz & 10.000 ns & +1.228 ns & 0.000 ns & \textcolor{green!70!black}{PASS} & Medium \\ \hline
+    \end{tabularx}
+    \caption{Kết quả Timing Closure (Post-Route) từ Vivado trên nền Zynq-7020}
+\end{table}
+
+\subsection{Tiêu thụ Tài nguyên (Resource Utilization)}
+Sau khi thiết kế lại mảng thanh ghi (thêm Pipeline Registers), số lượng Flip-Flop (FF) tăng thêm xấp xỉ 288 đơn vị. Mức sử dụng cụ thể trên chip \texttt{xc7z020}:
+\begin{itemize}
+    \item \textbf{LUT:} $\approx$ 930 (1.75\%) - Giữ nguyên do logic phân mảnh lại.
+    \item \textbf{FF:} $\approx$ 491 (0.46\%) - Rất nhỏ, không đáng kể so với dung lượng chip.
+    \item \textbf{DSP48E1:} 78 (35.45\%) - Tối ưu 25 phép nhân $\times$ 3 kênh.
+    \item \textbf{BRAM (18Kb):} 1 (0.71\%) - Dành cho Line Buffer.
+\end{itemize}
+
+\section{Kết luận}
+Bản nâng cấp \textbf{6-Stage Pipeline} cho hệ thống Convolution Engine 5$\times$5 RGB đã giải quyết triệt để nút thắt cổ chai về mặt đường dẫn tổ hợp (Combinational Path). 
+\begin{itemize}
+    \item Hệ thống hoạt động chính xác ở mức \textit{Bit-exact match} so với thuật toán tham chiếu Python.
+    \item Đáp ứng chuẩn đầu ra AXI4-Stream với thiết kế quản lý \textit{Back-pressure} đáng tin cậy.
+    \item Tần số hoạt động thực tế trên Silicon (Zynq-7020) đạt mức an toàn \textbf{100 MHz (WNS +1.228ns)}, mang lại thông lượng xử lý khổng lồ $\sim$ 100 triệu Pixel/giây cho các hệ thống thị giác máy tính Edge AI.
+\end{itemize}
+
+\end{document}

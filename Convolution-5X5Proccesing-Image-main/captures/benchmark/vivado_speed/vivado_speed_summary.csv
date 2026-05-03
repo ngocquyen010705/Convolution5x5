@@ -1,0 +1,6 @@
+PeriodNs,FreqMHz,WNS,TNS,Status,PowerConfidence
+50.0,20.0,22.577,0.000,PASS,Medium
+40.0,25.0,12.577,0.000,PASS,Medium
+35.0,28.571,7.451,0.000,PASS,Medium
+30.0,33.333,2.577,0.000,PASS,Medium
+25.0,40.0,-1.060,-121.329,FAIL,Medium
